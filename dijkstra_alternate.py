@@ -29,6 +29,8 @@ class GraphLearningPlatform:
         self.animation_steps = []
         self.visited_nodes = set()
         self.distances = {}
+        self.final_path = []
+        self.final_distance = 0
 
         style = ttk.Style()
         style.theme_use('clam')
@@ -172,7 +174,8 @@ class GraphLearningPlatform:
             except ValueError:
                 self.result_text.insert(tk.END, f"✗ Error: Invalid weight\n")
 
-    def visualize_graph(self, highlight_nodes=None, highlight_edges=None, node_labels=None, current_distances=None):
+    def visualize_graph(self, highlight_nodes=None, highlight_edges=None, node_labels=None, 
+                       current_distances=None, show_final_path=False):
         """Visualize the current graph with straight lines."""
         self.ax.clear()
         if self.graph.number_of_nodes() == 0:
@@ -181,27 +184,43 @@ class GraphLearningPlatform:
             return
 
         node_colors = []
+        node_sizes = []
         for node in self.graph.nodes():
-            if highlight_nodes and node in highlight_nodes:
+            if show_final_path and highlight_nodes and node in highlight_nodes:
+                # Nodes in final shortest path - bright green with larger size
+                node_colors.append('#a6e3a1')
+                node_sizes.append(1500)
+            elif highlight_nodes and node in highlight_nodes:
                 if node in self.visited_nodes:
-                    node_colors.append('#a6e3a1')  
+                    node_colors.append('#a6e3a1')  # Visited - green
                 else:
-                    node_colors.append('#f38ba8')
+                    node_colors.append('#f38ba8')  # Current - pink
+                node_sizes.append(1200)
             else:
-                node_colors.append('#89b4fa') 
+                node_colors.append('#89b4fa')  # Default - blue
+                node_sizes.append(1200)
 
         edge_colors = []
         edge_widths = []
+        edge_styles = []
         for edge in self.graph.edges():
-            if highlight_edges and (edge in highlight_edges or (edge[1], edge[0]) in highlight_edges):
-                edge_colors.append('#fab387') 
+            if show_final_path and highlight_edges and (edge in highlight_edges or (edge[1], edge[0]) in highlight_edges):
+                # Edges in final shortest path - bright orange, thicker
+                edge_colors.append('#fab387')
+                edge_widths.append(6)
+                edge_styles.append('solid')
+            elif highlight_edges and (edge in highlight_edges or (edge[1], edge[0]) in highlight_edges):
+                edge_colors.append('#fab387')  # Currently exploring - orange
                 edge_widths.append(4)
+                edge_styles.append('solid')
             else:
-                edge_colors.append('#6c7086')  
+                edge_colors.append('#6c7086')  # Default - gray
                 edge_widths.append(2)
+                edge_styles.append('solid')
+        
         nx.draw_networkx_nodes(self.graph, self.pos, 
                               node_color=node_colors,
-                              node_size=1200,
+                              node_size=node_sizes,
                               edgecolors='white',
                               linewidths=3,
                               ax=self.ax)
@@ -209,7 +228,8 @@ class GraphLearningPlatform:
         nx.draw_networkx_edges(self.graph, self.pos,
                               edge_color=edge_colors,
                               width=edge_widths,
-                              arrows=False,  
+                              style=edge_styles,
+                              arrows=False,
                               ax=self.ax)
 
         if node_labels:
@@ -251,8 +271,14 @@ class GraphLearningPlatform:
                                     font_weight='bold',
                                     ax=self.ax)
 
-        self.ax.set_title("Graph Visualization", color=self.accent_color, 
-                         fontsize=14, weight='bold', pad=20)
+        if show_final_path:
+            title = "✓ Shortest Path Found!"
+            color = self.success_color
+        else:
+            title = "Graph Visualization"
+            color = self.accent_color
+            
+        self.ax.set_title(title, color=color, fontsize=14, weight='bold', pad=20)
         self.ax.axis('off')
         self.canvas.draw()
 
@@ -293,15 +319,14 @@ class GraphLearningPlatform:
                         previous[neighbor] = current
                         heapq.heappush(pq, (new_distance, neighbor))
         
+        # Reconstruct path
         path = []
-        current = target
-        while current is not None:
-            path.append(current)
-            current = previous[current]
-        path.reverse()
-        
-        if path[0] != source:
-            return None, float('inf'), steps
+        if distances[target] != float('inf'):  # Path exists
+            current = target
+            while current is not None:
+                path.append(current)
+                current = previous[current]
+            path.reverse()
         
         return path, distances[target], steps
 
@@ -327,7 +352,7 @@ class GraphLearningPlatform:
 
         path, distance, steps = self.dijkstra_algorithm(source, target)
         
-        if path is None:
+        if not path or distance == float('inf'):
             self.result_text.insert(tk.END, "\n✗ No path exists between source and target\n")
             self.animation_running = False
             return
@@ -358,14 +383,34 @@ class GraphLearningPlatform:
 
     def show_final_result(self):
         """Display the final result after animation."""
+        if not self.final_path:
+            self.result_text.insert(tk.END, "\n✗ No path found\n")
+            self.animation_running = False
+            return
+            
         path_edges = list(zip(self.final_path[:-1], self.final_path[1:]))
         
-        self.visualize_graph(highlight_nodes=self.final_path, highlight_edges=path_edges)
+        # Show final path with special highlighting
+        self.visualize_graph(highlight_nodes=self.final_path, 
+                           highlight_edges=path_edges, 
+                           show_final_path=True)
         
         self.result_text.insert(tk.END, "\n" + "="*40 + "\n")
         self.result_text.insert(tk.END, f"✓ Algorithm Complete!\n\n")
-        self.result_text.insert(tk.END, f"Shortest Path Length: {self.final_distance:.2f}\n")
-        self.result_text.insert(tk.END, f"Path: {' → '.join(self.final_path)}\n")
+        self.result_text.insert(tk.END, f"📏 Shortest Path Distance: {self.final_distance:.2f}\n\n")
+        self.result_text.insert(tk.END, f"🛣️  Path Sequence:\n")
+        self.result_text.insert(tk.END, f"   {' → '.join(self.final_path)}\n\n")
+        
+        # Show step-by-step path with distances
+        self.result_text.insert(tk.END, f"📊 Path Details:\n")
+        cumulative_dist = 0
+        for i in range(len(self.final_path) - 1):
+            from_node = self.final_path[i]
+            to_node = self.final_path[i + 1]
+            edge_weight = self.graph[from_node][to_node]['weight']
+            cumulative_dist += edge_weight
+            self.result_text.insert(tk.END, f"   {from_node} → {to_node}: +{edge_weight:.1f} (total: {cumulative_dist:.1f})\n")
+        
         self.result_text.see(tk.END)
         
         self.animation_running = False
@@ -376,6 +421,8 @@ class GraphLearningPlatform:
         self.visited_nodes = set()
         self.current_step = 0
         self.animation_steps = []
+        self.final_path = []
+        self.final_distance = 0
         self.visualize_graph()
         self.result_text.delete(1.0, tk.END)
         self.result_text.insert(tk.END, "Visualization reset. Ready for new algorithm run.\n")
